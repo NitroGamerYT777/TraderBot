@@ -2,41 +2,58 @@
 <html lang="uz">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f8fa"><meta name="description" content="Auto Trader — Alpaca bilan kripto bozorini kuzatish paneli.">
+  <meta name="theme-color" content="#050907"><meta name="description" content="Auto Trader Matrix — sening bozoring, sening qoidalaring.">
   <title>Auto Trader · Bozor paneli</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/bots.css">
+  <link rel="stylesheet" href="/static/matrix.css">
   <script src="/static/app.js" defer></script>
   <script src="/static/bots.js" defer></script>
+  <script src="/static/matrix.js" defer></script>
 </head>
 <body>
+<canvas id="matrix-rain" aria-hidden="true"></canvas><div class="ambient-grid" aria-hidden="true"></div><div class="cursor-aura" id="cursor-aura" aria-hidden="true"></div>
+<svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="i-market" viewBox="0 0 24 24"><path d="M3 3v18h18M7 14l4-5 4 3 6-7"/><path d="M17 5h4v4"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 8V5a2 2 0 0 0-2-2H6a3 3 0 0 0 0 6h14a1 1 0 0 1 1 1v9a2 2 0 0 1-2 2H6a3 3 0 0 1-3-3V6"/><path d="M21 12h-5v5h5M17 14.5h.1"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="4"/><path d="M12 3v4M9 12v2M15 12v2M9 17h6M1 11v5M23 11v5"/><circle cx="12" cy="3" r="1"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="m9 3-.6 2.1-1.8 1L4.5 6 2 10l1.5 1.5v2L2 15l2.5 4 2.1-.1 1.8 1L9 22h5l.6-2.1 1.8-1 2.1.1 2.5-4-1.5-1.5v-2L21 10l-2.5-4-2.1.1-1.8-1L14 3Z"/><circle cx="11.5" cy="12.5" r="3"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-8Z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="m10 13 4-4M8 16l-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m4 0 2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" transform="translate(1 0)"/></symbol>
+</defs></svg>
 <header class="header">
-  <a href="#market" class="brand" aria-label="Auto Trader bosh sahifa"><img src="/static/logo.svg" width="35" height="35" alt=""><span>Auto Trader<span class="brand-dot">.</span></span><span class="version">BETA</span></a>
+  <a href="#market" class="brand" aria-label="Auto Trader bosh sahifa"><img src="/static/logo.svg" width="35" height="35" alt=""><span>Auto Trader<span class="brand-dot">.</span></span><span class="version">MATRIX</span></a>
   <nav class="main-nav" aria-label="Asosiy navigatsiya">
-    <a href="#balance" class="balance-link" data-nav="balance"><span class="wallet-icon">▣</span><span><small>Portfel qiymati</small><strong id="header-balance">—</strong></span></a>
+    <a href="#balance" class="balance-link" data-nav="balance"><span class="wallet-icon"><svg class="ui-icon"><use href="#i-wallet"/></svg></span><span><small>PORTFEL QIYMATI</small><strong id="header-balance">—</strong></span></a>
     <span class="nav-divider"></span>
-    <a href="#bots" data-nav="bots" aria-label="Trader Bots"><span class="nav-icon" aria-hidden="true">♧</span><span>Trader Bots</span></a>
+    <a href="#bots" data-nav="bots" aria-label="Trader Bots"><span class="nav-icon" aria-hidden="true"><svg class="ui-icon"><use href="#i-bot"/></svg></span><span>Trader Bots</span></a>
     <a href="#account" data-nav="account" aria-label="Account"><span class="avatar" aria-hidden="true">A</span><span>Account</span><span class="chevron">⌄</span></a>
+    <button id="motion-toggle" class="motion-toggle" type="button" aria-label="Animatsiyalarni kamaytirish" aria-pressed="true" title="Animatsiya rejimi"><svg class="ui-icon" aria-hidden="true"><use href="#i-bolt"/></svg><span>FX</span></button>
   </nav>
 </header>
 <div class="workspace">
   <aside class="sidebar">
-    <div class="sidebar-top"><span class="overline">WORKSPACE</span><a href="#market" class="side-item" data-nav="market"><span>▦</span> Bozor paneli <span class="side-arrow">↗</span></a><a href="#balance" class="side-item" data-nav="balance"><span>▥</span> Mening balansim</a><a href="#bots" class="side-item" data-nav="bots"><span>♧</span> Trader Bots <span class="soon-dot"></span></a></div>
-    <div class="sidebar-bottom"><div class="connection-card"><span class="connection-icon">↗</span><strong>Alpaca bilan bog‘laning</strong><p>Bozor ma’lumotlari va akkauntingiz bir joyda.</p><a href="#account">Ulanishni sozlash <span>→</span></a></div><a href="#account" class="side-item" data-nav="account"><span>⚙</span> Sozlamalar</a><div class="build"><span class="dot"></span> Auto Trader <span>v0.2</span></div></div>
+    <div class="sidebar-top"><span class="overline">YOUR CONTROL ROOM</span><a href="#market" class="side-item" data-nav="market"><span><svg class="ui-icon"><use href="#i-market"/></svg></span> Bozor paneli <span class="side-arrow">↗</span></a><a href="#balance" class="side-item" data-nav="balance"><span><svg class="ui-icon"><use href="#i-wallet"/></svg></span> Mening balansim</a><a href="#bots" class="side-item" data-nav="bots"><span><svg class="ui-icon"><use href="#i-bot"/></svg></span> Trader Bots <span class="soon-dot"></span></a><div class="sidebar-signature" aria-hidden="true"><span>FOLLOW</span><span>THE <em>SIGNAL.</em></span><small>01 / THINK IN POSSIBILITIES</small><i></i></div></div>
+    <div class="sidebar-bottom"><div class="connection-card"><span class="connection-icon"><svg class="ui-icon"><use href="#i-link"/></svg></span><strong>Ulan. Kuzat. Boshqar.</strong><p>Bozor bilan to‘g‘ridan-to‘g‘ri aloqa.</p><a href="#account">Alpaca ulanishi <span>↗</span></a></div><a href="#account" class="side-item" data-nav="account"><span><svg class="ui-icon"><use href="#i-settings"/></svg></span> Sozlamalar</a><div class="build"><span class="dot"></span> MATRIX TERMINAL <span>v0.3</span></div></div>
   </aside>
   <main>
     <div class="status-strip"><span><span class="dot" id="stream-dot"></span><strong id="mode-label">DEMO MUHIT</strong><span class="status-separator">/</span><span id="stream-label">Ulanmoqda…</span></span><span class="clock" id="clock">—</span></div>
     <div id="persistent-alert" class="alert hidden" role="status"></div>
     <section id="page-market" class="page">
-      <div class="page-heading"><div><div class="eyebrow">SIZNING BOZOR RADARINGIZ</div><h1>Bozor ko‘rinishi<span class="heading-dot">.</span></h1><p>Harakatni kuzating. Aktivlar o‘rtasidagi bog‘liqlikni tushuning.</p></div><a class="button secondary" href="#account"><span>⚙</span> Panel sozlamalari</a></div>
+      <div class="matrix-hero">
+        <div class="hero-copy"><div class="eyebrow hero-eyebrow"><span class="dot"></span> THE MARKET IS YOUR MATRIX <span class="hero-coordinate">/ 001</span></div><h1>Bozorni o‘qi.<br><span class="neon-text">Signalni ushla.</span><span class="terminal-caret" aria-hidden="true">_</span></h1><p>Har bir harakat — yangi imkoniyat.<br>Sening terminaling. Sening qoidalaring.</p><div class="hero-actions"><a class="button primary" href="#bots">Trader Bots <svg class="ui-icon" aria-hidden="true"><use href="#i-arrow"/></svg></a><button class="button secondary" type="button" data-scroll-to="market-analysis">Bozorni kuzatish <span>↓</span></button><span class="hero-tag"><span class="dot"></span> SPOT / 24·7</span></div></div>
+        <div class="matrix-core" aria-hidden="true"><div class="core-top"><span>SIGNAL ENGINE</span><span class="core-dot"></span><span id="core-state">CONNECTING</span></div><div class="core-radar"><div class="radar-cross cross-x"></div><div class="radar-cross cross-y"></div><div class="radar-ring ring-one"></div><div class="radar-ring ring-two"></div><div class="radar-ring ring-three"></div><div class="radar-sweep"></div><div class="core-monogram">A<span>◆</span></div><span class="radar-node node-one"></span><span class="radar-node node-two"></span><span class="radar-node node-three"></span></div><div class="core-bottom"><span id="core-feed">FEED / INITIALIZING</span><span id="core-assets">— ASSETS</span></div><span class="core-corner corner-tl"></span><span class="core-corner corner-br"></span></div>
+      </div>
+      <div class="market-tape" id="market-tape" aria-label="Bozor narxlari"></div>
       <div class="demo-banner" id="demo-banner"><span class="demo-tag">DEMO</span><span>Bu yerda simulyatsiya ma’lumotlari ko‘rsatilmoqda. Haqiqiy narxlar uchun Alpaca’ni ulang.</span><a href="#account">Akkauntni ulash ↗</a></div>
       <div class="metric-grid">
         <article class="metric-card"><span class="metric-icon bitcoin">₿</span><div class="metric-title">Bitcoin <span>BTC / USD</span></div><div class="metric-value" id="btc-price">—</div><div class="metric-bottom"><span id="btc-change">—</span><span>sessiya boshidan</span></div><svg class="mini-chart" id="btc-spark" viewBox="0 0 170 50" aria-hidden="true"></svg></article>
         <article class="metric-card"><span class="metric-icon ethereum">Ξ</span><div class="metric-title">Ethereum <span>ETH / USD</span></div><div class="metric-value" id="eth-price">—</div><div class="metric-bottom"><span id="eth-change">—</span><span>sessiya boshidan</span></div><svg class="mini-chart" id="eth-spark" viewBox="0 0 170 50" aria-hidden="true"></svg></article>
         <article class="metric-card portfolio-metric"><span class="metric-icon portfolio-icon">▥</span><div class="metric-title">Mening portfelim <span id="portfolio-type">SIMULYATSIYA</span></div><div class="metric-value" id="portfolio-value">—</div><div class="metric-bottom"><a href="#balance">Balans tarixini ko‘rish <span>↗</span></a></div><div class="portfolio-decoration" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
       </div>
-      <div class="analysis-grid">
+      <div class="analysis-grid" id="market-analysis">
         <article class="panel main-chart-panel">
           <div class="panel-head"><div><h2>Bozor harakati <span class="info" title="Narxlar kuzatuv oynasi boshida 0% ga tenglashtiriladi.">i</span></h2><p>Tanlangan aktivlar · oxirgi 10 daqiqa</p></div><span class="live-pill"><span class="dot"></span><span id="hz-label">2 Hz</span></span></div>
           <div class="chart-controls"><div id="chart-legend" class="chart-legend"></div><div class="segmented" role="group" aria-label="Grafik ko‘rinishi"><button class="selected" data-chart="line">Chiziq</button><button data-chart="bar">Gistogramma</button></div></div>

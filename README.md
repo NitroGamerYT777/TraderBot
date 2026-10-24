@@ -2,6 +2,18 @@
 
 Python + Alpaca asosidagi lokal kripto kuzatuv va avtomatik savdo ilovasi. Interfeys o‘zbek tilida. **Trader Bots** ichida bot yaratish, risk sozlamalari, Trend Guard strategiyasi, tarixiy backtest va Alpaca Paper/Live orderlari mavjud. Botlar yaratilganda savdo boshlanmaydi.
 
+## Matrix interfeysi
+
+Neon yashil terminal, shaffof panellar, raqamli yomg‘ir, animatsiyali radar, narx lentasi, yorug‘ grafiklar, kartalarning yengil 3D harakati va ravon sahifa/modal o‘tishlari. Asosiy navigatsiya va savdo qoidalari saqlangan; vizual effektlar savdo endpointlarini chaqirmaydi.
+
+Header’dagi **FX** tugmasi animatsiyalarni sokin rejimga o‘tkazadi; tanlov shu brauzerda saqlanadi. Qurilmaning `prefers-reduced-motion` sozlamasi hisobga olinadi. Tab yashirilganda fon animatsiyasi to‘xtaydi. Savdoni tasdiqlash oynasi joyidan siljimaydi — faqat shaffoflik o‘tishi ishlatiladi. Dizayn uchun qo‘shimcha framework, tashqi font yoki uchinchi tomon skripti kerak emas.
+
+![Matrix demo interfeysi](docs/matrix-preview.png)
+
+## GitHub’da saqlash
+
+Asosiy repozitoriy: [NitroGamerYT777/TraderBot](https://github.com/NitroGamerYT777/TraderBot), kuzatiladigan branch — `main`. Yakunlangan va tekshirilgan o‘zgarishlar commit qilinib, shu repozitoriyga yuboriladi. Doimiy ish tartibi `AGENTS.md`da yozilgan. Kalitlar, `.local/`, bazalar, virtual muhit va akkaunt ma’lumotlari ko‘rinadigan lokal tekshiruv suratlari Git’dan chiqarilgan. README’dagi dizayn surati alohida demo muhitidan olingan.
+
 ## Ishga tushirish (Windows / PowerShell)
 
 Eng oson yo‘l: **`Start Auto Trader.cmd`** faylini ikki marta bosing. Birinchi ishga tushirishda Python 3.10+ va kutubxonalarni yuklash uchun internet kerak. Skript muhitni tayyorlaydi va brauzerni ochadi. Server ishlashi uchun terminal oynasi ochiq tursin.
@@ -69,6 +81,7 @@ Live muhitni tanlash akkaunt ma’lumotlarini o‘qishga ulanadi. **Live botni t
 .\.venv\Scripts\python.exe -m pytest -q
 node --check static/app.js
 node --check static/bots.js
+node --check static/matrix.js
 ```
 
 Testlar Alpaca HTTP javoblarini almashtirib tekshiradi: API xavfsizligi va bozor tahlili, bot CRUD, risk/miqdor, Live tasdiq, akkaunt mosligi, pauza va restart, takroriy order, qisman fill, noaniq POST, disk xatosi, jarayon qulfi, spread/kunlik limit, backtestda look-ahead yo‘qligi, API order shakli va shamlar pagination’i. Haqiqiy brokerga Paper yoki Live order yuborish bu tekshiruvlar doirasida bajarilmaydi.
