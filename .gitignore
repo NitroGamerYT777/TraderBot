@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+.env.*
+.local/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+# Local QA captures can contain account information.
+docs/preview.png
+docs/trader-bots-preview.png
+docs/market-feed-fixed.png
