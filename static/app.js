@@ -15,12 +15,13 @@ async function api(path, options={}){
 }
 function setTrend(id,value){const e=$(id);e.textContent=pct(value);e.classList.toggle("positive",value!=null&&value>=0);e.classList.toggle("negative",value!=null&&value<0);}
 function navigate(){
-  const route=location.hash.slice(1);state.page=["market","balance","bots","account"].includes(route)?route:"market";
+  const route=location.hash.slice(1);state.page=["market","balance","bots","account","trade"].includes(route)?route:"market";
   document.querySelectorAll(".page").forEach(e=>e.classList.toggle("hidden",e.id!==`page-${state.page}`));
   document.querySelectorAll("[data-nav]").forEach(e=>{e.classList.toggle("active",e.dataset.nav===state.page);if(e.dataset.nav===state.page)e.setAttribute("aria-current","page");else e.removeAttribute("aria-current");});
-  document.title=`Auto Trader · ${{market:"Bozor paneli",balance:"Mening balansim",bots:"Trader Bots",account:"Account"}[state.page]}`;
+  document.title=`Auto Trader · ${{market:"Bozor paneli",balance:"Mening balansim",bots:"Trader Bots",trade:"Qo‘lda savdo",account:"Account"}[state.page]}`;
   if(state.page==="balance")loadHistory();
   if(state.data)render(state.data,true);
+  if(state.page==="trade"&&typeof loadManual==="function")loadManual();
   requestAnimationFrame(drawAll);
   if(typeof matrixPageEnter==="function")matrixPageEnter();
   window.scrollTo({top:0,behavior:"instant"});
@@ -64,6 +65,7 @@ function render(data,force=false){
   if(force||performance.now()-state.lastTable>900){state.lastTable=performance.now();renderTable();renderCorrelation();renderLegend();spark("btc-spark","BTC/USD",colors[0]);spark("eth-spark","ETH/USD",colors[1]);}
   if(state.page==="market")drawMarket();
   if(typeof renderBots==="function")renderBots(data,force);
+  if(typeof renderManual==="function")renderManual(data);
   if(typeof updateMatrixData==="function")updateMatrixData(data);
 }
 function renderLegend(){
@@ -83,7 +85,7 @@ function renderTable(){
     const change=element("td",a.change==null?"":a.change>=0?"positive":"negative",pct(a.change));
     const source=element("td"),badge=element("span","source-badge"),dot=element("span","dot");let label=d.mode==="demo"?"Simulyatsiya":a.price==null?"Narx kutilmoqda":a.stale?"Eskirgan":a.source==="rest"?"Alpaca · REST":"Alpaca · WebSocket";if(!state.transport)label="Server uzilgan";dot.style.background=(!state.transport||a.stale)?"#d6b17d":"#79ac87";badge.append(dot,document.createTextNode(label));source.append(badge);if(a.timestamp)source.title=`Oxirgi kotirovka: ${new Date(a.timestamp*1000).toLocaleString()}`;
     const activeBot=(d.bots||[]).some(b=>b.config.symbol===a.symbol&&b.status==="running"&&b.account_matches);
-    const trade=element("td");trade.append(element("span","tradable",d.mode==="demo"?"Demo":a.tradable?activeBot?"Bot faol":"Mavjud":"Mavjud emas"));
+    const trade=element("td");const tradeLink=element("a","tradable",d.mode==="demo"?"Demo":activeBot?"Bot faol":"Savdo ↗");tradeLink.href="#trade";tradeLink.addEventListener("click",()=>{if(typeof selectManualSymbol==="function")selectManualSymbol(a.symbol);});trade.append(tradeLink);
     tr.append(td,name,price,change,source,trade);tbody.append(tr);
   });
   if(!assets.length){const tr=element("tr"),td=element("td",null,"Aktiv topilmadi. Qidiruvni o‘zgartiring.");td.colSpan=6;tr.append(td);tbody.append(tr);}

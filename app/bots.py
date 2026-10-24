@@ -287,6 +287,7 @@ class BotEngine:
         self.confirm(bot,action)
         broker,ref = self.ensure_broker(bot)
         self.asset(bot)
+        self.runtime.manual.check_bot(bot["config"]["symbol"])
         if bot["pending"]:
             raise BotError("Avval kutilayotgan order holati aniqlanishi kerak.")
         if bot["status"]=="running":

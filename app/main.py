@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, SecretStr
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .alpaca import Alpaca, BrokerError
+from .manual import ManualTrading, ManualTicket, ManualConfirm
 from .market import Market
 from .bots import BotAction, BotConfig, BotEngine, BotError
 
@@ -62,6 +63,7 @@ class Runtime:
         self.analytics_cache = None
         self.analytics_time = 0
         self.bots = BotEngine(self, DATA / "bots.sqlite3")
+        self.manual = ManualTrading(self)
 
     def save(self):
         DATA.mkdir(parents=True, exist_ok=True)
@@ -95,6 +97,7 @@ class Runtime:
         try:
             account, assets = await asyncio.gather(broker.account(),broker.assets())
             self.bots.check_switch(account,payload.mode)
+            self.manual.check_switch(account,payload.mode)
             if not assets:
                 raise BrokerError("Akkaunt uchun savdoga ochiq kripto aktivlar topilmadi.")
             if payload.remember:
@@ -196,6 +199,8 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1","localhost"
 @app.exception_handler(RequestValidationError)
 async def validation_error(request, exc):
     # Pydantic's default response includes rejected input; never echo API secrets.
+    if request.url.path.startswith("/api/manual"):
+        return JSONResponse({"detail":"Kripto, muhit, xarid/sotuv va musbat miqdorni tekshiring."},status_code=422)
     if request.url.path.startswith("/api/bots"):
         # Only application-defined validation text, never rejected request input.
         messages = [str(e["ctx"]["error"]) for e in exc.errors() if e.get("ctx",{}).get("error")]
@@ -250,6 +255,8 @@ async def connect(payload: Connection):
 @app.delete("/api/connection")
 async def disconnect():
     async with runtime.lock:
+        if runtime.manual.pending():
+            raise BotError("Qo‘lda savdo orderi yakunlanmagan. Avval uning holatini tekshiring.")
         if runtime.bots.busy():
             raise BotError("Faol bot, ochiq pozitsiya yoki kutilayotgan order bor. Avval Trader Bots bo‘limida ularni yakunlang.")
         try:
@@ -264,6 +271,24 @@ async def disconnect():
         runtime.save()
         runtime.analytics_time = 0
     return {"message":"Ulanish uzildi, saqlangan kalitlar o‘chirildi. Demo faol."}
+
+
+@app.get("/api/manual")
+async def manual_snapshot():
+    async with runtime.lock:
+        return await runtime.manual.snapshot()
+
+
+@app.post("/api/manual/preview")
+async def manual_preview(payload: ManualTicket):
+    async with runtime.lock:
+        return await runtime.manual.preview(payload)
+
+
+@app.post("/api/manual/{order_id}/submit")
+async def manual_submit(order_id: str, payload: ManualConfirm):
+    async with runtime.lock:
+        return await runtime.manual.submit(order_id,payload)
 
 
 @app.get("/api/bots")
