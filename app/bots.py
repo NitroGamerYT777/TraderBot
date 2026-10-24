@@ -18,7 +18,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .alpaca import BrokerError
-from .strategies import FEE_RATE, MINUTES, backtest, bars_fresh, closed_bars, position_size, signal
+from .strategies import FEE_RATE, MINUTES, backtest, bars_fresh, closed_bars, position_size, signal, pulse_signal
 
 
 class BotError(Exception):
@@ -30,7 +30,7 @@ class BotConfig(BaseModel):
     name: str = Field(min_length=2,max_length=48)
     symbol: str = Field(pattern=r"^[A-Z0-9]+/USD$")
     mode: Literal["paper","live"] = "paper"
-    strategy: Literal["trend_guard"] = "trend_guard"
+    strategy: Literal["trend_guard","pulse_micro"] = "trend_guard"
     timeframe: Literal["5Min","15Min","1Hour"] = "15Min"
     budget_usd: float = Field(default=100,ge=20,le=100000)
     max_position_usd: float = Field(default=25,ge=5,le=100000)
@@ -38,9 +38,14 @@ class BotConfig(BaseModel):
     stop_loss_pct: float = Field(default=2,ge=.5,le=10)
     take_profit_pct: float = Field(default=4,ge=1,le=30)
     daily_loss_pct: float = Field(default=3,ge=1,le=10)
-    max_daily_trades: int = Field(default=4,ge=1,le=12)
+    max_daily_trades: int = Field(default=4,ge=1,le=7200)
     cooldown_bars: int = Field(default=3,ge=1,le=12)
     max_spread_pct: float = Field(default=.5,ge=.05,le=2)
+
+    max_orders_per_minute: int = Field(default=3,ge=1,le=5)
+    cooldown_seconds: int = Field(default=12,ge=12,le=3600)
+    hourly_profit_target_pct: float = Field(default=0,ge=0,le=100)
+    momentum_threshold_pct: float = Field(default=.1,ge=.02,le=5)
 
     @field_validator("name",mode="before")
     @classmethod
@@ -51,6 +56,8 @@ class BotConfig(BaseModel):
 
     @model_validator(mode="after")
     def limits(self):
+        if self.strategy=="trend_guard" and self.max_daily_trades>12:
+            raise ValueError("Trend Guard uchun kunlik kirishlar 12 dan oshmasin.")
         if self.max_position_usd>self.budget_usd:
             raise ValueError("Pozitsiya limiti bot budjetidan oshmasin.")
         if self.take_profit_pct<=self.stop_loss_pct:
@@ -100,7 +107,11 @@ class BotEngine:
                 with self.db() as db:
                     for row in db.execute("SELECT payload FROM bots"):
                         bot = json.loads(row[0])
-                        BotConfig(**bot["config"])
+                        bot["config"] = BotConfig(**bot["config"]).model_dump()
+                        bot.setdefault("order_times",[])
+                        bot.setdefault("hour",None)
+                        bot.setdefault("hour_start",bot["config"]["budget_usd"])
+                        bot.setdefault("halted_hour",None)
                         if bot["status"]=="running" or bot["qty"]>0 or bot["pending"]:
                             bot.update(status="paused",requires_resume=True,message="Server qayta ishga tushdi. Orderlar tekshiriladi; savdoni qo‘lda davom ettiring.")
                         self.items[bot["id"]] = bot
@@ -186,7 +197,7 @@ class BotEngine:
         bot = {"id":uuid.uuid4().hex,"config":config.model_dump(),"status":"draft","owner":None,"requires_resume":False,
                "created_at":time.time(),"message":"Bot yaratildi. Ishga tushirishni kutmoqda.","qty":0.,"cost":0.,
                "realized":0.,"fee_estimate":0.,"pending":None,"sequence":0,"last_bar":0.,"last_exit":0.,
-               "day":None,"day_start":config.budget_usd,"day_entries":0,"halted_day":None,
+               "order_times":[],"hour":None,"hour_start":config.budget_usd,"halted_hour":None,"day":None,"day_start":config.budget_usd,"day_entries":0,"halted_day":None,
                "filled_orders":0,"signal":None,"backtest":None,"retry_after":0.,"dust_qty":0.}
         self.save(bot,"Bot yaratildi; order yuborilmadi.")
         self.items[bot["id"]] = bot
@@ -199,7 +210,7 @@ class BotEngine:
         self.validate_config(config,exclude=bot_id)
         if config.mode!=bot["config"]["mode"] or config.symbol!=bot["config"]["symbol"]:
             raise BotError("Muhit yoki kriptoni almashtirish uchun yangi bot yarating.")
-        bot.update(config=config.model_dump(),backtest=None,day=None,halted_day=None)
+        bot.update(config=config.model_dump(),backtest=None,day=None,halted_day=None,hour=None,halted_hour=None)
         self.save(bot,"Bot sozlamalari yangilandi.")
 
     def delete(self, bot_id):
@@ -237,6 +248,8 @@ class BotEngine:
             price = q.get("bid",q.get("price")) if same else None
             unrealized = bot["qty"]*price*(1-FEE_RATE)-bot["cost"] if bot["qty"] and price else None
             result.append({**{k:v for k,v in bot.items() if k not in ("owner","backtest")},
+                           "hourly_pnl":(bot["config"]["budget_usd"]+bot["realized"]+(unrealized or 0)-bot["hour_start"]) if bot["hour"]==int(self.runtime.market.now()//3600) and (not bot["qty"] or unrealized is not None) else None,
+                           "orders_last_minute":len([t for t in bot["order_times"] if self.runtime.market.now()-60<t<=self.runtime.market.now()]),
                            "estimated_unrealized":unrealized,"estimated_total":bot["realized"]+(unrealized or 0),
                            "quote_stale":not same or self.runtime.market.quote_age(q)>15,
                            "backtest":{k:v for k,v in bot["backtest"].items() if k not in ("curve","recent_trades")} if bot["backtest"] else None,
@@ -293,6 +306,11 @@ class BotEngine:
         needed = max(0,bot["config"]["budget_usd"]+bot["realized"]-bot["cost"])
         if needed+reserved>float(account["cash"]):
             raise BotError("Naqd balans boshqa faol botlar budjeti bilan birga yetarli emas. Budjetni kamaytiring.")
+        if bot["config"]["strategy"]=="pulse_micro":
+            self.quote(bot)
+            bot.update(owner=ref,status="running",requires_resume=False,retry_after=0.)
+            self.save(bot,"Pulse Micro ishga tushdi. Signal va risk filtrlari tekshiriladi; savdo soni kafolatlanmaydi.")
+            return
         bars = await self.bars(bot,force=True)
         if len(bars)<100 or not bars_fresh(bars,bot["config"]["timeframe"],self.runtime.market.now()):
             raise BotError("Boshlash uchun kamida 100 ta yangi yopilgan sham kerak.")
@@ -322,6 +340,8 @@ class BotEngine:
         if not self.runtime.broker:
             raise BotError("Backtest uchun Account bo‘limida Alpaca’ni ulang.")
         config = bot["config"]
+        if config["strategy"]=="pulse_micro":
+            raise BotError("Pulse Micro uchun sekundlik tick tarixi kerak. Sham backtesti mos emas; Paper forward sinovdan foydalaning.")
         raw = await self.runtime.broker.bars(config["symbol"],config["timeframe"],1000)
         now = self.runtime.broker.market_time() if hasattr(self.runtime.broker,"market_time") else time.time()
         bars = closed_bars(raw,config["timeframe"],now)
@@ -347,6 +367,13 @@ class BotEngine:
         broker,_ = self.ensure_broker(bot)
         if self.storage_error:
             raise BotError(self.storage_error)
+        now = self.runtime.market.now()
+        bot["order_times"] = [t for t in bot["order_times"] if t>now-60]
+        if side=="buy" and bot["config"]["strategy"]=="pulse_micro":
+            if len(bot["order_times"])>=bot["config"]["max_orders_per_minute"] or (bot["order_times"] and now-bot["order_times"][-1]<60/bot["config"]["max_orders_per_minute"]):
+                self.say(bot,"Daqiqalik order limiti: yangi xarid kutilmoqda. Himoya sotuvlari bloklanmaydi.")
+                return
+        bot["order_times"].append(now)
         bot["sequence"] += 1
         cid = f"at-{bot['id'][:20]}-{bot['sequence']}"
         bot["pending"] = {"client_order_id":cid,"side":side,"qty":qty,"created_at":time.time(),"applied_qty":0.,"applied_gross":0.,"order_id":None,"cancel_sent":False}
@@ -467,6 +494,13 @@ class BotEngine:
         q = self.quote(bot)
         c = bot["config"]
         equity = c["budget_usd"]+bot["realized"]+(bot["qty"]*q["bid"]*(1-FEE_RATE)-bot["cost"] if bot["qty"] else 0)
+        hour = int(self.runtime.market.now()//3600)
+        if bot["hour"]!=hour:
+            bot.update(hour=hour,hour_start=equity,halted_hour=None)
+            self.save(bot)
+        if c["hourly_profit_target_pct"]>0 and equity-bot["hour_start"]>=c["budget_usd"]*c["hourly_profit_target_pct"]/100:
+            bot["halted_hour"] = hour
+            self.save(bot)
         day = int(self.runtime.market.now()//86400)
         if bot["day"]!=day:
             bot.update(day=day,day_start=equity,day_entries=0,halted_day=None)
@@ -476,31 +510,34 @@ class BotEngine:
             self.save(bot)
         if bot["qty"]:
             entry = bot["cost"]/(bot["qty"]*(1+FEE_RATE))
-            reason = "Kunlik zarar limiti" if bot["halted_day"]==day else "Stop-loss" if q["bid"]<=entry*(1-c["stop_loss_pct"]/100) else "Take-profit" if q["bid"]>=entry*(1+c["take_profit_pct"]/100) else None
+            reason = "Kunlik zarar limiti" if bot["halted_day"]==day else "Stop-loss" if q["bid"]<=entry*(1-c["stop_loss_pct"]/100) else "Take-profit" if q["bid"]>=entry*(1+c["take_profit_pct"]/100) else "Soatlik foyda maqsadiga yetildi" if bot["halted_hour"]==hour else None
             if reason:
                 await self.exit(bot,reason)
                 return
         if bot["halted_day"]==day:
             self.say(bot,"Kunlik zarar limiti: yangi xaridlar keyingi UTC kungacha bloklandi.")
             return
-        bars = await self.bars(bot)
-        if len(bars)<100 or not bars_fresh(bars,c["timeframe"],self.runtime.market.now()):
-            raise BotError("Yetarli yoki yangi yopilgan shamlar yo‘q. Savdo kutilmoqda.")
-        if bars[-1]["time"]<=bot["last_bar"]:
+        if bot["halted_hour"]==hour:
+            self.say(bot,"Soatlik maqsadga yetildi: yangi xaridlar keyingi UTC soatigacha bloklandi. Yakuniy foyda fill va komissiyaga bog‘liq.")
             return
-        decision = signal(bars)
-        bot["last_bar"],bot["signal"] = bars[-1]["time"],decision
+        if c["strategy"]=="pulse_micro":
+            decision = pulse_signal(self.runtime.market.series,c["symbol"],self.runtime.market.now(),c["momentum_threshold_pct"])
+        else:
+            decision = await self.trend_decision(bot)
+            if decision is None:
+                return
+        bot["signal"] = decision
         self.save(bot)
         if bot["qty"]:
             if decision["action"]=="sell":
-                await self.exit(bot,"EMA trendi qaytdi.")
+                await self.exit(bot,decision["reason"])
             return
         if bot["status"]!="running":
             return
         if decision["action"]!="buy":
             self.say(bot,decision["reason"])
             return
-        if bot["day_entries"]>=c["max_daily_trades"] or time.time()-bot["last_exit"]<c["cooldown_bars"]*MINUTES[c["timeframe"]]*60:
+        if bot["day_entries"]>=c["max_daily_trades"] or time.time()-bot["last_exit"]<(c["cooldown_seconds"] if c["strategy"]=="pulse_micro" else c["cooldown_bars"]*MINUTES[c["timeframe"]]*60):
             self.say(bot,"Savdolar limiti yoki cooldown: xarid o‘tkazib yuborildi.")
             return
         if (q["ask"]-q["bid"])/q["price"]*100>c["max_spread_pct"]:
@@ -523,6 +560,16 @@ class BotEngine:
             self.say(bot,"Risk budjeti yoki balans minimal order uchun yetarli emas.")
             return
         await self.submit(bot,"buy",qty,decision["reason"])
+
+    async def trend_decision(self,bot):
+        c = bot["config"]
+        bars = await self.bars(bot)
+        if len(bars)<100 or not bars_fresh(bars,c["timeframe"],self.runtime.market.now()):
+            raise BotError("Yetarli yoki yangi yopilgan shamlar yo‘q. Savdo kutilmoqda.")
+        if bars[-1]["time"]<=bot["last_bar"]:
+            return None
+        bot["last_bar"] = bars[-1]["time"]
+        return signal(bars)
 
     async def run(self):
         while True:

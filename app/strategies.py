@@ -129,3 +129,17 @@ def backtest(bars, config):
             "fee_pct":FEE_RATE*100,"slippage_pct":SLIPPAGE*100,
             "start":bars[0]["time"] if bars else None,"end":bars[-1]["time"] if bars else None,
             "note":"Cheklangan tarixiy simulyatsiya. Har tomonga 0.25% taxminiy komissiya va 0.10% slippage. Live natija kafolati emas."}
+
+
+def pulse_signal(rows, symbol, now, threshold):
+    """Short momentum filter on fresh one-second market snapshots; no quota trades."""
+    samples = [(r["time"], r.get("prices", {}).get(symbol)) for r in rows if now-40 <= r["time"] <= now]
+    samples = [(t,p) for t,p in samples if p and math.isfinite(p) and p>0]
+    if (len(samples)<30 or samples[-1][0]<now-3 or samples[-1][0]-samples[0][0]<25
+            or any(b[0]-a[0]>3 for a,b in zip(samples,samples[1:]))):
+        return {"action":"wait","reason":"Pulse Micro: 30 soniyalik uzluksiz yangi kotirovkalar kutilmoqda."}
+    values = [p for _,p in samples]
+    fast,slow = ema(values,4)[-1],ema(values,12)[-1]
+    momentum = (values[-1]/values[-11]-1)*100
+    action = "buy" if fast>slow and momentum>=threshold else "sell" if fast<slow and momentum<=-threshold else "wait"
+    return {"action":action,"momentum_pct":momentum,"reason":f"Pulse Micro: 10 soniyalik momentum {momentum:+.3f}%; EMA 4/12."}

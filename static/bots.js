@@ -1,7 +1,7 @@
 "use strict";
 const botUI = {editing:null,action:null,cards:new Map(),busy:new Set()};
-const botFields = {name:"bot-name",symbol:"bot-symbol",mode:"bot-mode",timeframe:"bot-timeframe",budget_usd:"bot-budget",max_position_usd:"bot-position",risk_pct:"bot-risk",daily_loss_pct:"bot-daily-loss",stop_loss_pct:"bot-stop",take_profit_pct:"bot-take",max_daily_trades:"bot-trades",cooldown_bars:"bot-cooldown",max_spread_pct:"bot-spread"};
-const botDefaults = {name:"",symbol:"BTC/USD",mode:"paper",timeframe:"15Min",budget_usd:100,max_position_usd:25,risk_pct:.5,daily_loss_pct:3,stop_loss_pct:2,take_profit_pct:4,max_daily_trades:4,cooldown_bars:3,max_spread_pct:.5};
+const botFields = {strategy:"bot-strategy",max_orders_per_minute:"bot-rate",hourly_profit_target_pct:"bot-hourly",cooldown_seconds:"bot-seconds",momentum_threshold_pct:"bot-momentum",name:"bot-name",symbol:"bot-symbol",mode:"bot-mode",timeframe:"bot-timeframe",budget_usd:"bot-budget",max_position_usd:"bot-position",risk_pct:"bot-risk",daily_loss_pct:"bot-daily-loss",stop_loss_pct:"bot-stop",take_profit_pct:"bot-take",max_daily_trades:"bot-trades",cooldown_bars:"bot-cooldown",max_spread_pct:"bot-spread"};
+const botDefaults = {strategy:"pulse_micro",max_orders_per_minute:3,hourly_profit_target_pct:10,cooldown_seconds:12,momentum_threshold_pct:.1,name:"",symbol:"BTC/USD",mode:"paper",timeframe:"15Min",budget_usd:100,max_position_usd:25,risk_pct:.5,daily_loss_pct:3,stop_loss_pct:2,take_profit_pct:4,max_daily_trades:240,cooldown_bars:3,max_spread_pct:.5};
 function botById(id){return (state.data?.bots||[]).find(b=>b.id===id);}
 function formError(id,message){$(id).textContent=message;$(id).classList.toggle("hidden",!message);}
 function setValueText(root,selector,value){root.querySelector(selector).textContent=value;}
@@ -27,22 +27,23 @@ function renderBots(data){
   bots.forEach(bot=>{
     let card=botUI.cards.get(bot.id);if(!card){card=makeBotCard(bot);botUI.cards.set(bot.id,card);$("bot-list").prepend(card);}
     const c=bot.config,busy=botUI.busy.has(bot.id),connected=bot.account_matches&&data.mode===c.mode&&state.transport;
-    setValueText(card,".trader-coin",short(c.symbol).slice(0,3));setValueText(card,"h2",c.name);setValueText(card,".trader-name small",`${c.symbol} · ${{"5Min":"5 daqiqa","15Min":"15 daqiqa","1Hour":"1 soat"}[c.timeframe]}`);
+    setValueText(card,".trader-coin",short(c.symbol).slice(0,3));setValueText(card,"h2",c.name);setValueText(card,".trader-name small",c.strategy==="pulse_micro"?`${c.symbol} · sekundlik signal`:`${c.symbol} · ${{"5Min":"5 daqiqa","15Min":"15 daqiqa","1Hour":"1 soat"}[c.timeframe]}`);
     const badge=card.querySelector(".bot-state-badge");badge.textContent=bot.pending?"Order kutilmoqda":bot.requires_resume?"Davom ettirish kerak":{draft:"Tayyor",running:"Faol",paused:"Pauza",error:"E’tibor kerak"}[bot.status]||bot.status;badge.className=`bot-state-badge ${bot.status}`;
     const env=card.querySelector(".bot-env-badge");env.textContent=c.mode.toUpperCase();env.classList.toggle("live",c.mode==="live");
     setValueText(card,".bot-budget-value",money(c.budget_usd));setValueText(card,".bot-qty-value",`${Number(bot.qty).toLocaleString("en-US",{maximumSignificantDigits:6})} ${short(c.symbol)}`);
     const realized=card.querySelector(".bot-pnl-value");realized.textContent=money(bot.realized);realized.classList.toggle("positive",bot.realized>=0);realized.classList.toggle("negative",bot.realized<0);
     const unrealized=card.querySelector(".bot-open-pnl-value");unrealized.textContent=bot.qty===0?money(0):bot.quote_stale?"— · narx eski":money(bot.estimated_unrealized);unrealized.classList.toggle("positive",!bot.quote_stale&&bot.estimated_unrealized>=0);unrealized.classList.toggle("negative",!bot.quote_stale&&bot.estimated_unrealized<0);
     setValueText(card,".bot-stop-tag",`SL ${c.stop_loss_pct}%`);setValueText(card,".bot-take-tag",`TP ${c.take_profit_pct}%`);setValueText(card,".bot-risk-tag",`Risk ${c.risk_pct}% · maks. ${money(c.max_position_usd)}`);
-    setValueText(card,".bot-current-message",bot.message);
+    setValueText(card,".trader-strategy",c.strategy==="pulse_micro"?`Pulse Micro · EMA 4/12 · ≤${c.max_orders_per_minute} order/min · oxirgi 60 s: ${bot.orders_last_minute}`:"Trend Guard · EMA 20/50 + RSI");
+    setValueText(card,".bot-current-message",`${bot.message}${c.hourly_profit_target_pct>0?` Soatlik P/L ≈ ${bot.quote_stale?"—":money(bot.hourly_pnl)} / maqsad ${money(c.budget_usd*c.hourly_profit_target_pct/100)} (${c.hourly_profit_target_pct}%, kafolatsiz).`:""}`);
     const pending=card.querySelector(".bot-pending-id");pending.classList.toggle("hidden",!bot.pending);pending.textContent=bot.pending?`Client ID: ${bot.pending.client_order_id}`:"";
     const button=action=>card.querySelector(`[data-bot-action="${action}"]`);
     button("start").classList.toggle("hidden",bot.status==="running");button("start").textContent=bot.status==="draft"?"Boshlash":"Davom ettirish";button("start").disabled=busy||!connected||!!bot.pending||!!data.bots_error;
     button("start").title=connected?"Budjet va riskni ko‘rib, savdoni boshlash":`Account bo‘limida shu botga mos ${c.mode.toUpperCase()} akkauntni ulang`;
     button("pause").classList.toggle("hidden",bot.status!=="running");button("pause").disabled=busy;
     button("close").classList.toggle("hidden",bot.qty<=0);button("close").disabled=busy||!connected||!!bot.pending;
-    button("backtest").disabled=busy||data.mode==="demo"||!!data.bots_error;
-    button("backtest").title=data.mode==="demo"?"Tarixiy ma’lumot uchun Alpaca’ni ulang":"Haqiqiy tarixiy shamlar, taxminiy komissiya va slippage bilan sinash";
+    button("backtest").disabled=busy||c.strategy==="pulse_micro"||data.mode==="demo"||!!data.bots_error;
+    button("backtest").title=c.strategy==="pulse_micro"?"Sekundlik tick tarixi kerak; Paper forward sinovdan foydalaning":data.mode==="demo"?"Tarixiy ma’lumot uchun Alpaca’ni ulang":"Haqiqiy tarixiy shamlar, taxminiy komissiya va slippage bilan sinash";
     button("edit").disabled=busy||bot.status==="running"||bot.qty>0||!!bot.pending;
     button("delete").disabled=button("edit").disabled||!!data.bots_error;
   });
@@ -63,6 +64,7 @@ function openBotForm(bot=null){
   if(!select.value&&select.options.length)select.selectedIndex=0;
   $("bot-mode").disabled=!!bot;$("bot-symbol").disabled=!!bot;
   $("bot-form-note").textContent=state.data.mode==="demo"?"Demo aktivlar ro‘yxati. Botni yaratish mumkin; ishga tushirish va backtest uchun haqiqiy Alpaca ulanishi kerak.":"Faqat USD juftliklari. Bot yaratilishi order yubormaydi. Paper va Live alohida kalitlar talab qiladi. Budjet ichki limit; pul subakkauntga o‘tkazilmaydi.";
+  $("bot-timeframe").disabled=values.strategy==="pulse_micro";
   updateSizingPreview();$("bot-dialog").showModal();
 }
 async function refreshBots(){const data=await api("/api/bootstrap");render(data,true);}
@@ -73,7 +75,7 @@ function openBotAction(bot,action){
   $("bot-action-eyebrow").textContent=live&&!deleting?"HAQIQIY MABLAG‘ BILAN AMAL":"SAVDONI BOSHQARISH";
   const summary=$("bot-action-summary");summary.replaceChildren(element("h3",null,bot.config.name));
   const details=element("dl","action-summary-grid");
-  [["Kripto",bot.config.symbol],["Muhit",bot.config.mode.toUpperCase()],["Budjet",money(bot.config.budget_usd)],["Maks. pozitsiya",money(bot.config.max_position_usd)],["Stop / Take",`${bot.config.stop_loss_pct}% / ${bot.config.take_profit_pct}%`],["Kunlik zarar limiti",`${bot.config.daily_loss_pct}%`]].forEach(([label,value])=>{const pair=element("div");pair.append(element("dt",null,label),element("dd",null,value));details.append(pair);});summary.append(details);
+  [["Strategiya",bot.config.strategy==="pulse_micro"?`Pulse Micro · ≤${bot.config.max_orders_per_minute} order/min`:"Trend Guard"],["Soatlik maqsad",`${bot.config.hourly_profit_target_pct}% · kafolatsiz`],["Kripto",bot.config.symbol],["Muhit",bot.config.mode.toUpperCase()],["Budjet",money(bot.config.budget_usd)],["Maks. pozitsiya",money(bot.config.max_position_usd)],["Stop / Take",`${bot.config.stop_loss_pct}% / ${bot.config.take_profit_pct}%`],["Kunlik zarar limiti",`${bot.config.daily_loss_pct}%`]].forEach(([label,value])=>{const pair=element("div");pair.append(element("dt",null,label),element("dd",null,value));details.append(pair);});summary.append(details);
   summary.append(element("p","action-warning",deleting?"Bot va uning lokal jurnali o‘chiriladi. Brokerdagi tarix o‘zgarmaydi.":close?"Botga tegishli miqdor bozor orderi bilan sotiladi. Narx va komissiya yakuniy natijaga ta’sir qiladi.":`${live?"Haqiqiy":"Virtual"} mablag‘ bilan avtomatik xarid va sotish boshlanadi. Foyda kafolatlanmaydi. Server yoki internet uzilsa lokal stop-loss va take-profit ishlamaydi.`));
   $("bot-risk-ack-label").textContent=deleting?"Shu bot va uning lokal jurnalini o‘chirishni tasdiqlayman.":"Budjet va risklarni ko‘rib chiqdim. Lokal himoya uchun server hamda internet ishlashi kerakligini tushundim.";
   const phrase=`${close?"CLOSE":"LIVE"} ${bot.config.name}`;
@@ -102,7 +104,7 @@ $("create-bot-button").addEventListener("click",()=>openBotForm());$("create-fir
 document.querySelectorAll("[data-close-dialog]").forEach(button=>button.addEventListener("click",()=>$(button.dataset.closeDialog).close()));
 $("bot-form").addEventListener("input",updateSizingPreview);
 $("bot-form").addEventListener("submit",async event=>{
-  event.preventDefault();const submit=$("save-bot-button"),config={strategy:"trend_guard"};Object.entries(botFields).forEach(([key,id])=>{config[key]=["name","symbol","mode","timeframe"].includes(key)?$(id).value:Number($(id).value);});submit.disabled=true;formError("bot-form-error","");
+  event.preventDefault();const submit=$("save-bot-button"),config={};Object.entries(botFields).forEach(([key,id])=>{config[key]=["name","symbol","mode","timeframe","strategy"].includes(key)?$(id).value:Number($(id).value);});submit.disabled=true;formError("bot-form-error","");
   try{const result=await api(botUI.editing?`/api/bots/${botUI.editing}`:"/api/bots",{method:botUI.editing?"PUT":"POST",body:JSON.stringify(config)});$("bot-dialog").close();await refreshBots();toast(result.message);}catch(e){formError("bot-form-error",e.message);}finally{submit.disabled=false;}
 });
 $("bot-list").addEventListener("click",async event=>{
@@ -114,4 +116,12 @@ $("bot-list").addEventListener("click",async event=>{
 $("bot-action-form").addEventListener("submit",async event=>{
   event.preventDefault();if(!botUI.action)return;const {id,action}=botUI.action,bot=botById(id),submit=$("bot-action-submit");if(!bot)return;submit.disabled=true;formError("bot-action-error","");
   try{const result=await api(`/api/bots/${id}${action==="delete"?"":`/${action}`}`,{method:action==="delete"?"DELETE":"POST",body:action==="delete"?undefined:JSON.stringify({acknowledge_risk:$("bot-risk-ack").checked,confirmation:$("live-confirmation").value,review_token:botUI.action.reviewToken})});$("bot-action-dialog").close();await refreshBots();toast(result.message);}catch(e){formError("bot-action-error",e.message);}finally{submit.disabled=false;}
+});
+
+$("bot-strategy").addEventListener("change",()=>{
+  const pulse=$("bot-strategy").value==="pulse_micro";
+  $("bot-timeframe").disabled=pulse;
+  $("bot-trades").value=pulse?240:4;
+  $("bot-hourly").value=pulse?10:0;
+  updateSizingPreview();
 });

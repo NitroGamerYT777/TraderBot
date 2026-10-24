@@ -336,3 +336,62 @@ def test_broker_order_contract_no_post_retry_and_bars_pagination():
         finally:
             await broker.close()
     asyncio.run(run())
+
+def test_pulse_signal_warmup_and_gaps():
+    now=time.time()
+    rows=[{"time":now-39+i,"prices":{"BTC/USD":100+i*.025}} for i in range(40)]
+    assert strategies.pulse_signal(rows,"BTC/USD",now,.1)["action"]=="buy"
+    assert strategies.pulse_signal(rows[:20],"BTC/USD",now,.1)["action"]=="wait"
+    assert strategies.pulse_signal(rows,"BTC/USD",now+10,.1)["action"]=="wait"
+    flat=[{"time":r["time"],"prices":{"BTC/USD":100}} for r in rows]
+    assert strategies.pulse_signal(flat,"BTC/USD",now,.1)["action"]=="wait"
+
+
+def test_pulse_persistent_order_limit_and_exit_override(runtime):
+    bot=create(runtime,strategy="pulse_micro",max_orders_per_minute=1,max_daily_trades=240)
+    bot["owner"]=account_ref(runtime.account,"paper")
+    asyncio.run(runtime.bots.submit(bot,"buy",".01","test"))
+    asyncio.run(runtime.bots.submit(bot,"buy",".01","test"))
+    assert len(runtime.broker.sent)==1
+    restored=BotEngine(runtime,runtime.bots.path).get(bot["id"])
+    assert len(restored["order_times"])==1
+    asyncio.run(runtime.bots.submit(bot,"sell",".01","protective exit"))
+    assert len(runtime.broker.sent)==2
+
+
+def test_hourly_target_lock_and_rollover(runtime,monkeypatch):
+    bot=create(runtime,strategy="pulse_micro",hourly_profit_target_pct=10)
+    now=time.time()
+    monkeypatch.setattr(runtime.market,"now",lambda:now)
+    bot.update(status="running",owner=account_ref(runtime.account,"paper"),hour=int(now//3600),hour_start=100,realized=11)
+    asyncio.run(runtime.bots.tick(bot))
+    assert bot["halted_hour"]==int(now//3600)
+    assert not runtime.broker.sent
+    bot["realized"]=9
+    asyncio.run(runtime.bots.tick(bot))
+    assert bot["halted_hour"]==int(now//3600)  # lock stays after profit retreats
+    now=(int(now//3600)+1)*3600+1
+    runtime.market.quotes["BTC/USD"]["timestamp"]=now
+    asyncio.run(runtime.bots.tick(bot))
+    assert bot["halted_hour"] is None and bot["hour_start"]==109
+    assert not runtime.broker.sent  # no signal, no forced trading
+
+
+def test_pulse_start_no_order_and_no_misleading_backtest(runtime):
+    bot=create(runtime,strategy="pulse_micro")
+    asyncio.run(runtime.bots.start(bot["id"],action(bot)))
+    assert bot["status"]=="running" and not runtime.broker.sent
+    with pytest.raises(BotError,match="tick"):
+        asyncio.run(runtime.bots.test(bot["id"]))
+
+
+def test_legacy_config_migration(runtime):
+    bot=create(runtime)
+    for key in ("max_orders_per_minute","hourly_profit_target_pct","cooldown_seconds","momentum_threshold_pct"):
+        del bot["config"][key]
+    for key in ("order_times","hour","hour_start","halted_hour"):
+        del bot[key]
+    runtime.bots.save(bot)
+    restored=BotEngine(runtime,runtime.bots.path).get(bot["id"])
+    assert restored["config"]["hourly_profit_target_pct"]==0
+    assert restored["order_times"]==[]

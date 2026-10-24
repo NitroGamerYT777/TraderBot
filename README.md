@@ -102,3 +102,10 @@ Bozor oqimi regressiya testlari 73 ta aktivni cheklangan obunaga ajratish, obuna
 - [Order client ID orqali tekshirish](https://docs.alpaca.markets/us/reference/getorderbyclientorderid)
 - [Tarixiy kripto shamlar](https://docs.alpaca.markets/us/reference/cryptobars-1)
 - [Kripto komissiyalari](https://docs.alpaca.markets/us/docs/crypto-fees)
+
+
+### Pulse Micro
+
+Sekundlik snapshotlar ustida EMA 4/12 va 10 soniyalik momentum filtri. Kamida 30 soniyalik uzluksiz ma’lumot talab qilinadi. Dvigatel har 5 soniyada tekshiradi. UI orqali 1–5 order/min yuqori chegarasi, sekundlik cooldown, momentum chegarasi va kunlik kirishlar limiti sozlanadi. Xarid va sotuv alohida order; chiqish sotuvlari xavfsizlik uchun tezlik chegarasidan ozod. Tezlik limiti jurnalga POSTdan oldin yoziladi va restartdan keyin saqlanadi. Bu majburiy savdo kvotasi emas.
+
+Soatlik maqsad (yangi Pulse botda 10%, eski botda o‘chiq) bot budjetiga nisbatan taxminiy kapital o‘zgarishidir: realized + bidda baholangan ochiq P/L, taxminiy komissiyadan keyin. UTC soati almashganda baza yangilanadi. Maqsadga yetganda pozitsiya yopishga urinish va shu soat oxirigacha yangi xaridlar bloklanishi amalga oshadi. Fill, spread, fee va slippage sabab yakuniy natija maqsaddan farq qiladi. **10%/soat foyda kafolatlanmaydi; strategiyaning daromadliligi isbotlanmagan.** Pulse uchun sham backtesti ko‘rsatilmaydi: sekundlik tick replay yoki Paper forward sinov kerak. Hech qanday mavjud bot avtomatik yangi strategiyaga o‘tkazilmaydi yoki ishga tushirilmaydi.
